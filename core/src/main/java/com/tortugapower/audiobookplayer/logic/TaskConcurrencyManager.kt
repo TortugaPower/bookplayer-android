@@ -560,7 +560,7 @@ class TaskConcurrencyManager(
     /** Back to pending, not to run again before its backoff is over: one more failure in a row (SyncBackoff) */
     private suspend fun scheduleRetry(task: SyncTaskEntity, errorMessage: String) {
         val streak = task.failureStreak + 1
-        val delayMs = SyncBackoff.delayFor(streak)
+        val delayMs = SyncBackoff.delayFor(streak, maxDelayMs = SyncBackoff.maxDelayFor(task.queueKey))
         Log.w(TAG, "⏳ ${task.jobType} task ${task.id} failed ($streak in a row); retrying in ${delayMs / 1000}s")
         repository.markTaskRetrying(task.id, errorMessage, streak, System.currentTimeMillis() + delayMs)
     }

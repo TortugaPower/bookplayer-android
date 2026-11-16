@@ -29,7 +29,7 @@ import kotlinx.coroutines.delay
 
 @Composable
 fun HardcoverBrowser(
-    token: String,
+    isConnected: Boolean,
     initialQuery: String,
     linkedBook: HardcoverBook?,
     onBookSelected: (HardcoverBook?) -> Unit,
@@ -39,18 +39,18 @@ fun HardcoverBrowser(
     var books by remember { mutableStateOf<List<HardcoverBook>>(emptyList()) }
     var isLoading by remember { mutableStateOf(false) }
 
-    LaunchedEffect(searchQuery, token) {
-        if (token.isBlank()) {
+    LaunchedEffect(searchQuery, isConnected) {
+        if (!isConnected) {
             books = emptyList()
             return@LaunchedEffect
         }
         isLoading = true
         if (searchQuery.isBlank()) {
-            books = HardcoverService.getPopularBooks(token)
+            books = HardcoverService.getPopularBooks()
             isLoading = false
         } else {
             delay(500) // Debounce API requests
-            books = HardcoverService.searchBooks(token, searchQuery)
+            books = HardcoverService.searchBooks(searchQuery)
             isLoading = false
         }
     }
@@ -113,21 +113,21 @@ fun HardcoverBrowser(
                 .weight(1f),
             contentAlignment = Alignment.Center
         ) {
-            if (token.isBlank()) {
+            if (!isConnected) {
                 Column(
                     horizontalAlignment = Alignment.CenterHorizontally,
                     verticalArrangement = Arrangement.Center,
                     modifier = Modifier.padding(24.dp)
                 ) {
                     Text(
-                        text = stringResource(R.string.hardcover_token_missing),
+                        text = stringResource(R.string.hardcover_not_signed_in),
                         style = MaterialTheme.typography.titleMedium,
                         fontWeight = FontWeight.Bold,
                         color = MaterialTheme.colorScheme.onSurface
                     )
                     Spacer(modifier = Modifier.height(8.dp))
                     Text(
-                        text = stringResource(R.string.hardcover_configure_token_hint),
+                        text = stringResource(R.string.hardcover_sign_in_hint),
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         textAlign = androidx.compose.ui.text.style.TextAlign.Center

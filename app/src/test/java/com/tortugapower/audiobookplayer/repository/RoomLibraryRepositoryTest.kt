@@ -124,12 +124,11 @@ class RoomLibraryRepositoryTest {
     // --- Hardcover progress transitions (updateItemProgress) ---
 
     private val syncTasks = FakeSyncTaskRepository()
-    private var hardcoverToken = "test-token"
+    private var hardcoverConnected = true
     private val hardcoverRepository = RoomLibraryRepository(
         android.content.ContextWrapper(null),
         fakeDao,
-        hardcoverTokenProvider = { hardcoverToken },
-        readingThresholdProvider = { 0.5f },
+        hardcoverConnectedProvider = { hardcoverConnected },
         syncTaskRepositoryProvider = { syncTasks }
     ) { timeCurrent }
 
@@ -172,23 +171,12 @@ class RoomLibraryRepositoryTest {
         assertTrue(task.payload.contains("\"status\":3"))
     }
 
+    /** Currently Reading is the progress task's to send (HardcoverProgressSync), once Hardcover takes it */
     @Test
-    fun testUpdateItemProgress_overThreshold_marksHardcoverReading_andEnqueuesStatusTask() = runBlocking {
+    fun testUpdateItemProgress_unfinished_leavesTheStatusToTheProgressTask() = runBlocking {
         seedHardcoverBook(status = "synced")
 
         hardcoverRepository.updateItemProgress(uuid = "book-1", currentTime = 60.0, isFinished = false)
-
-        assertEquals("reading", fakeDao.insertedExternalResources.single().syncStatus)
-        val task = syncTasks.tasks.single()
-        assertEquals(com.tortugapower.audiobookplayer.logic.SyncTaskFactory.JOB_HARDCOVER_UPDATE_STATUS, task.jobType)
-        assertTrue(task.payload.contains("\"status\":2"))
-    }
-
-    @Test
-    fun testUpdateItemProgress_underThreshold_leavesHardcoverUntouched() = runBlocking {
-        seedHardcoverBook(status = "synced")
-
-        hardcoverRepository.updateItemProgress(uuid = "book-1", currentTime = 20.0, isFinished = false)
 
         assertTrue(fakeDao.insertedExternalResources.isEmpty())
         assertTrue(syncTasks.tasks.isEmpty())
@@ -206,9 +194,9 @@ class RoomLibraryRepositoryTest {
     }
 
     @Test
-    fun testUpdateItemProgress_blankToken_skipsHardcoverSync() = runBlocking {
+    fun testUpdateItemProgress_notConnected_skipsHardcoverSync() = runBlocking {
         seedHardcoverBook(status = "synced")
-        hardcoverToken = ""
+        hardcoverConnected = false
 
         hardcoverRepository.updateItemProgress(uuid = "book-1", currentTime = 100.0, isFinished = true)
 

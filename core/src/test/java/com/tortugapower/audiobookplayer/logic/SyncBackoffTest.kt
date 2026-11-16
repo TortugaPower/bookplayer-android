@@ -39,6 +39,16 @@ class SyncBackoffTest {
         assertTrue(SyncBackoff.delayFor(13, spread(0.0)) < fiveHours)
     }
 
+    /** iOS `hardcoverRetryDelay`: Hardcover catches up within minutes of an outage ending */
+    @Test fun theHardcoverLaneWaitsAtMost5Minutes() {
+        val fiveMinutes = 5 * 60 * 1_000L
+        assertEquals(fiveMinutes, SyncBackoff.maxDelayFor(SyncTaskFactory.QUEUE_HARDCOVER))
+        assertEquals(SyncBackoff.MAX_DELAY_MS, SyncBackoff.maxDelayFor(SyncTaskFactory.QUEUE_SYNC))
+        val hardcover = (1..10).map { SyncBackoff.delayFor(it, none, SyncBackoff.maxDelayFor(SyncTaskFactory.QUEUE_HARDCOVER)) }
+        assertEquals(listOf(5_000L, 10_000L, 20_000L, 40_000L, 80_000L, 160_000L), hardcover.take(6))
+        assertTrue(hardcover.drop(6).all { it == fiveMinutes })
+    }
+
     @Test fun aLongStreak_staysAtTheCap() {
         assertEquals(SyncBackoff.MAX_DELAY_MS, SyncBackoff.delayFor(1_000, none))
         assertEquals(SyncBackoff.MAX_DELAY_MS, SyncBackoff.delayFor(Int.MAX_VALUE, none))

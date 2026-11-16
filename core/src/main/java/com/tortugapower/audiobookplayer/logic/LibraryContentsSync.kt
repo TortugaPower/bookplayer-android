@@ -122,12 +122,15 @@ object LibraryContentsSync {
                         ?: localRes?.lastSyncedAt,
                     processedFile = remoteRes.processedFile,
                     libraryItemUuid = uuid!!,
-                    // Pure-numeric hostIds are by construction legacy device-local rowids (the
-                    // stable contract writes GUIDs or canonical URL keys, never bare integers) —
-                    // ignore them in favor of local knowledge so a fetch can't clobber the
-                    // migration's rewritten values. Same local-wins philosophy as the artwork
-                    // rule above.
-                    hostId = remoteRes.hostId?.takeUnless { it.toLongOrNull() != null } ?: localRes?.hostId
+                    // A media server's pure-numeric hostId is by construction a legacy device-local
+                    // rowid (its stable contract writes GUIDs or canonical URL keys, never bare
+                    // integers) — ignored in favor of local knowledge so a fetch can't clobber the
+                    // migration's rewritten values. Same local-wins philosophy as the artwork rule
+                    // above. A Hardcover link's hostId is the account's Hardcover user id, a number
+                    // by design (iOS writes the same), and never was a rowid: it's kept.
+                    hostId = remoteRes.hostId
+                        ?.takeUnless { remoteRes.providerName != "hardcover" && it.toLongOrNull() != null }
+                        ?: localRes?.hostId
                 )
                 libraryDao.insertExternalResource(resourceEntity)
             }

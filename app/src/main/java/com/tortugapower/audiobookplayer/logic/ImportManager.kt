@@ -1025,9 +1025,8 @@ object ImportManager : ImportService {
     ) {
         if (items.isEmpty()) return
         try {
-            val hardcoverToken = HardcoverSettingsManager.getToken(context).first()
             val autoMatch = HardcoverSettingsManager.getAutoMatchBooks(context).first()
-            if (hardcoverToken.isNotBlank() && autoMatch) {
+            if (autoMatch && com.tortugapower.audiobookplayer.logic.HardcoverAccount.isConnected(context)) {
                 SyncTaskFactory.createHardcoverAutoMatchTask(syncTaskRepository, items)
             }
         } catch (e: Exception) {

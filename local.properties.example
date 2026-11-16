@@ -24,6 +24,14 @@
 
 # GOOGLE_CLIENT_ID=000000000000-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx.apps.googleusercontent.com
 
+# --- Hardcover -----------------------------------------------------------------
+# Public client id of a Hardcover OAuth app (hardcover.app → Account → Developer apps)
+# whose redirect URI is exactly bookplayer://hardcover/callback. Not a secret (public
+# client, PKCE). Empty hides Hardcover's Sign In button, and Hardcover can't be
+# connected: API keys can no longer be entered.
+
+# HARDCOVER_CLIENT_ID=
+
 # --- Sentry --------------------------------------------------------------------
 # DSN from your Sentry project settings. Leave empty to disable crash reporting
 # in local builds.

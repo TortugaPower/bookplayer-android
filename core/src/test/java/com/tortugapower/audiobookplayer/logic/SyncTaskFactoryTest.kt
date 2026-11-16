@@ -12,6 +12,7 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -459,5 +460,25 @@ class SyncTaskFactoryTest {
         val payload = payloadOf(repo.pending!!)
         assertEquals(4.0, (payload["orderRank"] as Number).toDouble(), 0.0)
         assertEquals(52.0, payload["currentTime"])
+    }
+
+    @Test fun hardcoverProgress_goesInTheHardcoverLane_now() = runBlocking {
+        val repo = CapturingRepo()
+        SyncTaskFactory.createHardcoverProgressTask(repo, "u1", 42.5)
+
+        val task = repo.saved!!
+        assertEquals(SyncTaskFactory.QUEUE_HARDCOVER, task.queueKey)
+        assertEquals(SyncTaskFactory.JOB_HARDCOVER_UPDATE_PROGRESS, task.jobType)
+        assertEquals("u1", task.taskID)
+        assertNull(task.nextAttemptAt)
+        assertEquals(42.5, payloadOf(task)["percent"])
+    }
+
+    @Test fun hardcoverProgress_replacesTheWaitingPercent() = runBlocking {
+        val repo = PendingRepo()
+        SyncTaskFactory.createHardcoverProgressTask(repo, "u1", 40.0)
+        SyncTaskFactory.createHardcoverProgressTask(repo, "u1", 41.0)
+
+        assertEquals(41.0, payloadOf(repo.pending!!)["percent"])
     }
 }
