@@ -20,7 +20,7 @@ class HardcoverProgressUpdateTest {
 
     private var lacksScope = false
     private var link: ExternalResourceEntity? =
-        ExternalResourceEntity(providerName = "hardcover", providerId = "77", syncStatus = "reading", libraryItemUuid = "u1")
+        ExternalResourceEntity(providerName = "hardcover", providerId = "77", syncStatus = HardcoverProgressUpdate.LINK_READING, libraryItemUuid = "u1")
     private var userId: String? = "42"
     private var userBooks: List<UserBook>? = listOf(userBook())
     private var refusal: String? = null
@@ -41,7 +41,7 @@ class HardcoverProgressUpdateTest {
             hardcoverLink = { link },
             readingThreshold = { threshold },
             startReading = { book -> started += book; startAnswer() },
-            markReading = { uuid -> marked += uuid; link = link?.copy(syncStatus = "reading") },
+            markReading = { uuid -> marked += uuid; link = link?.copy(syncStatus = HardcoverProgressUpdate.LINK_READING) },
             userId = { userId },
             readInProgress = { user, book -> asked += user to book; ReadInProgressData(userBooks) },
             updateReadProgress = { read, progress -> written += read to progress; refusal },
@@ -61,6 +61,17 @@ class HardcoverProgressUpdateTest {
         assertEquals(listOf(77), started)
         assertEquals(listOf("u1"), marked)
         assertEquals(1, written.size)
+    }
+
+    /** 1.4 set `reading` before sending the status and dropped a failed send: Hardcover may never have got it */
+    @Test fun `a link 1_4 marked reading is sent Currently Reading once more, then marked as taken`() {
+        link = link!!.copy(syncStatus = "reading")
+        assertEquals(HardcoverProgressResult.Sent, update(25.0))
+        assertEquals(listOf(77), started)
+        assertEquals(HardcoverProgressUpdate.LINK_READING, link!!.syncStatus)
+
+        assertEquals(HardcoverProgressResult.Sent, update(30.0))
+        assertEquals("sent once", listOf(77), started)
     }
 
     @Test fun `below the threshold, a book not Currently Reading yet sends nothing`() {

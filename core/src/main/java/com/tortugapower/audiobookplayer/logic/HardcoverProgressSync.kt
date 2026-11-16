@@ -169,7 +169,7 @@ internal class HardcoverProgressUpdate(
         if (resource.syncStatus != LINK_READING) {
             if (percent / 100 < readingThreshold()) return HardcoverProgressResult.NotReading
             // Currently Reading first, in the same run (iOS `syncProgress`): it starts the read the progress goes on, and
-            // a failure worth retrying throws before any progress is sent. The link says `reading` only once Hardcover
+            // a failure worth retrying throws before any progress is sent. The link says [LINK_READING] only once Hardcover
             // took it, so a status change that failed is sent again by the book's next run.
             if (startReading(bookId) == null) {
                 Log.e(TAG, "Hardcover returned no entry setting book $bookId Currently Reading")
@@ -223,8 +223,13 @@ internal class HardcoverProgressUpdate(
         private const val READ_LIBRARY_SCOPE = "read:library"
         const val STATUS_CURRENTLY_READING = 2
 
-        /** The link's `syncStatus` once Hardcover took Currently Reading, and once the book is finished */
-        const val LINK_READING = "reading"
+        /**
+         * The link's `syncStatus` once Hardcover took Currently Reading. Not 1.4's `reading`: that was set before the
+         * status was sent, and a failed send was dropped, so a link still saying it may never have reached Hardcover.
+         * Such a link is sent Currently Reading once more by its next run past the threshold.
+         */
+        const val LINK_READING = "currently_reading"
+        /** The link's `syncStatus` once the book is finished (RoomLibraryRepository queues Read) */
         const val LINK_READ = "read"
     }
 }

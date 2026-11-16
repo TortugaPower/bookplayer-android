@@ -203,10 +203,10 @@ class HardcoverAutoMatchTest {
         assertTrue(runCatching { failing.process(task) }.exceptionOrNull() is java.io.IOException)
     }
 
-    // The link says `reading` before this runs: dropped while offline, Hardcover would never start the read.
+    // Read's link says `read` before this runs: dropped while offline, Hardcover would never get it.
     @Test fun `a status change Hardcover may get over is retried, any other failure dropped`() = runBlocking {
         insert("r", "Rho")
-        dao.insertExternalResource(ExternalResourceEntity(providerName = "hardcover", providerId = "900", syncStatus = "reading", libraryItemUuid = "r"))
+        dao.insertExternalResource(ExternalResourceEntity(providerName = "hardcover", providerId = "900", syncStatus = "read", libraryItemUuid = "r"))
         entries[900] = entry(hasBook = true)
         fun failing(error: Exception) = HardcoverProcessor(
             context,

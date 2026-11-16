@@ -394,9 +394,10 @@ browserdrop/               # standalone library (no :core/:app deps), package co
       queues one `hardcover_update_progress` task per linked book holding the latest percentage, whenever its whole
       percentage changes (`HardcoverProgressChanges`, iOS's: about 20 requests an hour on a 10-hour book).
       - Currently Reading goes first, in the same run (iOS `syncProgress`): past the reading threshold, a link that
-        doesn't say `reading` yet is set so on Hardcover, which starts the read. The link says `reading` only once
-        Hardcover took it, so a status change that failed is sent again by the book's next run. Read on finishing is
-        its own status task (`RoomLibraryRepository`), as is Want to Read on a manual link.
+        doesn't say `currently_reading` yet is set so on Hardcover, which starts the read. The link says
+        `currently_reading` only once Hardcover took it, so a status change that failed is sent again by the book's
+        next run. 1.4's `reading` was set before the send, so a link still saying it gets Currently Reading once more.
+        Read on finishing is its own status task (`RoomLibraryRepository`), as is Want to Read on a manual link.
       - Measured against the read's own edition only: one without a length gets nothing (iOS; the edition on a read
         is the user's), only forward and short of the end (`HardcoverReadProgress`).
       - Offline, timeouts, 429 and 5xx retry with the engine's backoff, capped at 5 minutes in this lane (iOS

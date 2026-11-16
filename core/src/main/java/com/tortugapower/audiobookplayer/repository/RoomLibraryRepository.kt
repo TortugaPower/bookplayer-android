@@ -226,7 +226,7 @@ class RoomLibraryRepository(
         }
 
         // Hardcover: Read once finished. Currently Reading isn't set here: the book's progress task sets it once
-        // past the reading threshold, and the link says `reading` only once Hardcover took it (HardcoverProgressSync).
+        // past the reading threshold, and the link says so only once Hardcover took it (HardcoverProgressSync).
         try {
             val hardcoverResource = libraryDao.getExternalResource(item.uuid, "hardcover")
             if (hardcoverResource != null && item.isFinished && hardcoverResource.syncStatus != "read" && hardcoverConnectedProvider()) {
