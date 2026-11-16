@@ -12,6 +12,7 @@
     <string name="common_more">더 보기</string>
     <string name="common_done">완료</string>
     <string name="common_ok">확인</string>
+    <string name="common_error">오류</string>
     <string name="common_cancel">취소</string>
     <string name="common_save">저장</string>
     <string name="common_delete">삭제</string>
@@ -47,6 +48,8 @@
 
     <!-- Profile -->
     <string name="profile_title">프로필</string>
+    <string name="profile_account">계정</string>
+    <string name="profile_sign_in">로그인</string>
     <string name="profile_tier_label">등급: %1$s</string>
 
     <!-- Pro -->

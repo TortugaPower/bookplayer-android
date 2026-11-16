@@ -102,13 +102,13 @@ class SyncingLibraryRepository(
     }
 
     /**
-     * A Currently Reading book's percentage for its read on Hardcover (iOS `updateReadProgress`), in the Hardcover
-     * lane behind the status change that starts the read (the delegate's save has just queued it, when this save
-     * crossed the threshold). A finished book's status is Read instead, and a move back to the start or to the end
-     * sends nothing and drops the stale percentage waiting.
+     * A linked book's percentage for its read on Hardcover (iOS `queueProgress`), in the Hardcover lane. Its run sets
+     * the book Currently Reading first once it's past the reading threshold (HardcoverProgressSync). A finished book's
+     * status is Read instead, and a move back to the start or to the end sends nothing and drops the stale percentage
+     * waiting.
      */
     private suspend fun queueHardcoverProgress(item: LibraryItemEntity, resource: ExternalResourceEntity) {
-        if (resource.syncStatus != "reading" || item.isFinished || !hardcoverConnected()) return
+        if (resource.syncStatus == "read" || item.isFinished || !hardcoverConnected()) return
         val percent = item.percentCompleted * 100
         if (HardcoverReadProgress.isInRange(percent)) {
             if (hardcoverChanges.isNew(item.uuid, percent)) {

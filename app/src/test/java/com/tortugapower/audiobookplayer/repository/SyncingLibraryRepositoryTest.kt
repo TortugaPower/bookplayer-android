@@ -932,10 +932,18 @@ class SyncingLibraryRepositoryTest {
         assertEquals(41.0, percentOf(tasks.tasks.single { it.jobType == SyncTaskFactory.JOB_HARDCOVER_UPDATE_PROGRESS }), 1e-9)
     }
 
+    /** Its run sets the book Currently Reading first, once past the reading threshold (iOS `queueProgress`) */
     @Test
-    fun hardcoverProgress_needsACurrentlyReadingBook_andAConnectedAccount() = runBlocking {
+    fun hardcoverProgress_ofALinkedBookNotCurrentlyReadingYet_isQueuedToo() = runBlocking {
         val tasks = FakeSyncTaskRepository()
         hardcoverRepository(hardcoverBook("synced"), tasks).savePlaybackProgress("book-1", 40.0, reachedEnd = false)
+
+        assertEquals(40.0, percentOf(tasks.tasks.single { it.jobType == SyncTaskFactory.JOB_HARDCOVER_UPDATE_PROGRESS }), 1e-9)
+    }
+
+    @Test
+    fun hardcoverProgress_needsAnUnfinishedBook_andAConnectedAccount() = runBlocking {
+        val tasks = FakeSyncTaskRepository()
         hardcoverRepository(hardcoverBook("read"), tasks).savePlaybackProgress("book-1", 40.0, reachedEnd = false)
         hardcoverRepository(hardcoverBook("reading"), tasks, connected = false).savePlaybackProgress("book-1", 40.0, reachedEnd = false)
         val finished = hardcoverBook("reading", 1.0).apply { items["book-1"]!!.isFinished = true }

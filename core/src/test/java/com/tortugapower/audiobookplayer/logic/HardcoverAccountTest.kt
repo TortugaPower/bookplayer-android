@@ -261,10 +261,23 @@ class HardcoverAccountTest {
         assertNull(store.tokens)
     }
 
-    @Test fun `an attempt older than ten minutes is dropped`() = runBlocking {
+    @Test fun `an attempt's own return after ten minutes fails, rather than leaving the screen waiting`() = runBlocking {
         val state = beginInBrowser(now = 1_000L)
+        val late = 1_000L + HardcoverAccount.PENDING_SIGN_IN_TTL_MS + 1
 
-        assertFalse(HardcoverAccount.completeBrowserSignIn(redirect(state), now = 1_000L + HardcoverAccount.PENDING_SIGN_IN_TTL_MS + 1))
+        val failure = runCatching { HardcoverAccount.completeBrowserSignIn(redirect(state), now = late) }.exceptionOrNull()
+
+        assertTrue(failure is HardcoverAccount.HardcoverSignInExpiredException)
+        assertNull(store.tokens)
+        assertFalse("the attempt is gone", HardcoverAccount.completeBrowserSignIn(redirect(state), now = late))
+    }
+
+    @Test fun `another return after ten minutes is ignored, and drops the expired attempt`() = runBlocking {
+        val state = beginInBrowser(now = 1_000L)
+        val late = 1_000L + HardcoverAccount.PENDING_SIGN_IN_TTL_MS + 1
+
+        assertFalse(HardcoverAccount.completeBrowserSignIn(redirect("forged"), now = late))
+        assertFalse(HardcoverAccount.completeBrowserSignIn(redirect(state), now = late))
         assertNull(store.tokens)
     }
 
@@ -301,7 +314,7 @@ class HardcoverAccountTest {
         val dao = db.syncTaskDao()
         val tasks = com.tortugapower.audiobookplayer.repository.RoomSyncTaskRepository(dao)
         SyncTaskFactory.createHardcoverProgressTask(tasks, "book-1", 40.0)
-        SyncTaskFactory.createHardcoverUpdateStatusTask(tasks, "book-2", 2)
+        SyncTaskFactory.createHardcoverUpdateStatusTask(tasks, "book-2", 3)
         HardcoverProgressSync.changes.isNew("book-1", 40.0)
 
         HardcoverAccount.disconnect()

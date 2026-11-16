@@ -149,11 +149,4 @@ class HardcoverOAuthTest {
         assertTrue(full.missingScopes.isEmpty())
         assertEquals(setOf("read:catalog", "read:library", "write:library"), full.copy(scope = "read:me").missingScopes)
     }
-
-    @Test fun `a stored sign-in from before the refused flag reads as not refused`() {
-        val stored = com.google.gson.Gson().fromJson(
-            """{"accessToken":"a","refreshToken":"r","scope":"","expiresAt":1}""", HardcoverTokenSet::class.java
-        )
-        assertFalse(stored.refreshRefused)
-    }
 }

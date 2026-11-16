@@ -129,7 +129,6 @@ class RoomLibraryRepositoryTest {
         android.content.ContextWrapper(null),
         fakeDao,
         hardcoverConnectedProvider = { hardcoverConnected },
-        readingThresholdProvider = { 0.5f },
         syncTaskRepositoryProvider = { syncTasks }
     ) { timeCurrent }
 
@@ -172,23 +171,12 @@ class RoomLibraryRepositoryTest {
         assertTrue(task.payload.contains("\"status\":3"))
     }
 
+    /** Currently Reading is the progress task's to send (HardcoverProgressSync), once Hardcover takes it */
     @Test
-    fun testUpdateItemProgress_overThreshold_marksHardcoverReading_andEnqueuesStatusTask() = runBlocking {
+    fun testUpdateItemProgress_unfinished_leavesTheStatusToTheProgressTask() = runBlocking {
         seedHardcoverBook(status = "synced")
 
         hardcoverRepository.updateItemProgress(uuid = "book-1", currentTime = 60.0, isFinished = false)
-
-        assertEquals("reading", fakeDao.insertedExternalResources.single().syncStatus)
-        val task = syncTasks.tasks.single()
-        assertEquals(com.tortugapower.audiobookplayer.logic.SyncTaskFactory.JOB_HARDCOVER_UPDATE_STATUS, task.jobType)
-        assertTrue(task.payload.contains("\"status\":2"))
-    }
-
-    @Test
-    fun testUpdateItemProgress_underThreshold_leavesHardcoverUntouched() = runBlocking {
-        seedHardcoverBook(status = "synced")
-
-        hardcoverRepository.updateItemProgress(uuid = "book-1", currentTime = 20.0, isFinished = false)
 
         assertTrue(fakeDao.insertedExternalResources.isEmpty())
         assertTrue(syncTasks.tasks.isEmpty())

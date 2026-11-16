@@ -62,11 +62,6 @@ class HardcoverOAuthSession(
         val pending: CompletableDeferred<HardcoverTokenSet> = mutex.withLock {
             refreshing ?: run {
                 val current = store.read() ?: return null
-                // Refused for good: no more refreshes. The token serves until it expires or is refused; logging out
-                // and signing in again replaces it.
-                if (current.refreshRefused) {
-                    return current.accessToken.takeUnless { current.isExpired(now()) || it == rejected }
-                }
                 val refreshToken = current.refreshToken
                 val mustRefresh = if (rejected != null) rejected == current.accessToken else current.needsRefresh(now())
                 if (!mustRefresh || refreshToken == null) return current.accessToken
@@ -161,12 +156,10 @@ class HardcoverOAuthSession(
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
-            val refused = e is HardcoverOAuthException && !e.isTemporary
+            // Any other failure, a refusal too (iOS): the sign-in is kept, and a refresh is tried again after the wait
             mutex.withLock {
                 lastFailedRefresh = now()
                 lastRefreshFailure = e
-                // Marked on this sign-in only: a new one signed in meanwhile starts clean
-                if (refused) store.read()?.takeIf { it.refreshToken == refreshToken }?.let { store.write(it.copy(refreshRefused = true)) }
             }
             // The access token may still have time left
             if (!current.isExpired(now())) return current

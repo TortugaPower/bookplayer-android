@@ -32,6 +32,7 @@ class HardcoverProcessor(
     private val isConnected: suspend (Context) -> Boolean = { HardcoverAccount.isConnected(it) },
 ) : TaskProcessor {
     private val gson = Gson()
+    private val status = HardcoverStatusSender(saveUserBookStatus, libraryEntry, connectedUserId)
 
     override suspend fun process(task: SyncTaskEntity): Boolean {
         val payloadType = object : TypeToken<Map<String, Any?>>() {}.type
@@ -68,14 +69,13 @@ class HardcoverProcessor(
                 }
 
                 Log.d("HardcoverProcessor", "Updating Hardcover status for book ID ${resource.providerId} to status $statusId")
-                // The link already says `reading`/`read`, so this task is the only send: a failure Hardcover may get
-                // over (offline, a timeout, rate limited, down) throws for the engine to retry. Dropped, Hardcover
-                // would never start the read and every progress send for the book would find none. Anything else
-                // is dropped (iOS drops every failure, but records the status only once sent).
+                // Want to Read (a manual link) or Read (the link already says `read`, so this task is its only send):
+                // a failure Hardcover may get over (offline, a timeout, rate limited, down) throws for the engine to
+                // retry; anything else is dropped. Currently Reading isn't a task: a progress run sends it.
                 try {
                     val hardcoverBookId = resource.providerId.toIntOrNull()
                     if (hardcoverBookId != null) {
-                        val userBookId = saveStatus(hardcoverBookId, statusId)
+                        val userBookId = status.save(hardcoverBookId, statusId)
                         if (userBookId != null) {
                             Log.d("HardcoverProcessor", "Successfully updated Hardcover status (userBookId: $userBookId)")
                         } else {
@@ -179,29 +179,12 @@ class HardcoverProcessor(
                 return
             }
             try {
-                val userBookId = saveStatus(bookId, 1)
+                val userBookId = status.save(bookId, 1)
                 if (userBookId == null) Log.e("HardcoverProcessor", "Failed to add '${item.title}' to Hardcover Want to Read")
             } catch (e: Exception) {
                 Log.e("HardcoverProcessor", "Error registering matched book as Want to Read", e)
             }
         }
-    }
-
-    /**
-     * Adds the book to the user's Hardcover library, or sets its status there (iOS `insertUserBook`). A book they don't
-     * have yet goes in as its audiobook edition; one they have keeps its own.
-     */
-    private suspend fun saveStatus(bookId: Int, statusId: Int): Int? =
-        saveUserBookStatus(bookId, statusId, editionForNewEntry(bookId))
-
-    /** Null when the user already has the book, it has no audiobook edition, or the lookup fails: Hardcover picks then. */
-    private suspend fun editionForNewEntry(bookId: Int): Int? = try {
-        connectedUserId()?.toIntOrNull()?.let { libraryEntry(it, bookId)?.editionForNewEntry }
-    } catch (e: CancellationException) {
-        throw e
-    } catch (e: Exception) {
-        Log.e("HardcoverProcessor", "Failed to look up book $bookId before adding it to Hardcover: ${e.javaClass.simpleName}")
-        null
     }
 
     override fun canHandle(jobType: String): Boolean {

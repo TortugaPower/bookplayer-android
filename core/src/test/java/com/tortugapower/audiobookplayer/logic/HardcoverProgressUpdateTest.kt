@@ -8,8 +8,10 @@ import com.tortugapower.audiobookplayer.network.ReadInProgressData.Read
 import com.tortugapower.audiobookplayer.network.ReadInProgressData.UserBook
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertThrows
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import java.io.IOException
 
 /** The checks a progress update makes before it writes on Hardcover's read. */
 class HardcoverProgressUpdateTest {
@@ -24,6 +26,11 @@ class HardcoverProgressUpdateTest {
     private var refusal: String? = null
     private val asked = mutableListOf<Pair<Int, Int>>()
     private val written = mutableListOf<Pair<Int, HardcoverReadProgress>>()
+    private var threshold = 0.2f
+    /** What setting Currently Reading answers (the entry's id), or throws */
+    private var startAnswer: () -> Int? = { 5 }
+    private val started = mutableListOf<Int>()
+    private val marked = mutableListOf<String>()
 
     private fun userBook(statusId: Int = 2, reads: List<Read> = listOf(Read(9, null, 3_600, audiobook))) =
         UserBook(id = 5, statusId = statusId, userBookReads = reads)
@@ -32,6 +39,9 @@ class HardcoverProgressUpdateTest {
         HardcoverProgressUpdate(
             lacksReadLibrary = { lacksScope },
             hardcoverLink = { link },
+            readingThreshold = { threshold },
+            startReading = { book -> started += book; startAnswer() },
+            markReading = { uuid -> marked += uuid; link = link?.copy(syncStatus = "reading") },
             userId = { userId },
             readInProgress = { user, book -> asked += user to book; ReadInProgressData(userBooks) },
             updateReadProgress = { read, progress -> written += read to progress; refusal },
@@ -42,6 +52,40 @@ class HardcoverProgressUpdateTest {
         assertEquals(HardcoverProgressResult.Sent, update(25.0))
         assertEquals(listOf(42 to 77), asked)
         assertEquals(listOf(9 to HardcoverReadProgress(HardcoverReadProgress.ProgressUnit.SECONDS, 9_000)), written)
+        assertTrue("already Currently Reading: no status change", started.isEmpty() && marked.isEmpty())
+    }
+
+    @Test fun `past the threshold, a book not Currently Reading yet is set so first, then its progress is written (iOS)`() {
+        link = link!!.copy(syncStatus = "library")
+        assertEquals(HardcoverProgressResult.Sent, update(25.0))
+        assertEquals(listOf(77), started)
+        assertEquals(listOf("u1"), marked)
+        assertEquals(1, written.size)
+    }
+
+    @Test fun `below the threshold, a book not Currently Reading yet sends nothing`() {
+        link = link!!.copy(syncStatus = "synced")
+        assertEquals(HardcoverProgressResult.NotReading, update(15.0))
+        assertTrue(started.isEmpty() && asked.isEmpty() && written.isEmpty())
+    }
+
+    @Test fun `a status change worth retrying throws before any progress, and the link isn't marked`() {
+        link = link!!.copy(syncStatus = "library")
+        startAnswer = { throw IOException("offline") }
+        assertThrows(IOException::class.java) { update(25.0) }
+        assertTrue(marked.isEmpty() && asked.isEmpty() && written.isEmpty())
+        assertEquals("library", link!!.syncStatus)
+    }
+
+    @Test fun `a status change Hardcover answered with no entry sends no progress, and the next run tries it again`() {
+        link = link!!.copy(syncStatus = "library")
+        startAnswer = { null }
+        assertEquals(HardcoverProgressResult.NoReadInProgress, update(25.0))
+        assertTrue(marked.isEmpty() && written.isEmpty())
+
+        startAnswer = { 5 }
+        assertEquals(HardcoverProgressResult.Sent, update(26.0))
+        assertEquals(listOf(77, 77), started)
     }
 
     @Test fun `a sign-in without read library sends nothing`() {
@@ -50,12 +94,12 @@ class HardcoverProgressUpdateTest {
         assertTrue(asked.isEmpty() && written.isEmpty())
     }
 
-    @Test fun `a book not linked, or not Currently Reading in the library, sends nothing`() {
-        link = link!!.copy(syncStatus = "want_to_read")
+    @Test fun `a book not linked, or finished, sends nothing`() {
+        link = link!!.copy(syncStatus = "read")
         assertEquals(HardcoverProgressResult.NotReading, update())
         link = null
         assertEquals(HardcoverProgressResult.NotReading, update())
-        assertTrue(asked.isEmpty())
+        assertTrue(started.isEmpty() && asked.isEmpty())
     }
 
     @Test fun `no account id sends nothing`() {

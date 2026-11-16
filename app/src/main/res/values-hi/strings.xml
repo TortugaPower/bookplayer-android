@@ -12,6 +12,7 @@
     <string name="common_more">अधिक</string>
     <string name="common_done">हो गया</string>
     <string name="common_ok">ठीक है</string>
+    <string name="common_error">त्रुटि</string>
     <string name="common_cancel">रद्द करें</string>
     <string name="common_save">सहेजें</string>
     <string name="common_delete">हटाएं</string>
@@ -47,6 +48,8 @@
 
     <!-- Profile -->
     <string name="profile_title">प्रोफ़ाइल</string>
+    <string name="profile_account">खाता</string>
+    <string name="profile_sign_in">साइन इन करें</string>
     <string name="profile_tier_label">टियर: %1$s</string>
 
     <!-- Pro -->

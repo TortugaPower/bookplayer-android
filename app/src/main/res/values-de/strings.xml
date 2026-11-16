@@ -12,6 +12,7 @@
     <string name="common_more">Mehr</string>
     <string name="common_done">Fertig</string>
     <string name="common_ok">OK</string>
+    <string name="common_error">Fehler</string>
     <string name="common_cancel">Abbrechen</string>
     <string name="common_save">Speichern</string>
     <string name="common_delete">Löschen</string>
@@ -48,6 +49,8 @@
 
     <!-- Profile -->
     <string name="profile_title">Profil</string>
+    <string name="profile_account">Konto</string>
+    <string name="profile_sign_in">Anmelden</string>
     <string name="profile_tier_label">Stufe: %1$s</string>
 
     <!-- Pro -->

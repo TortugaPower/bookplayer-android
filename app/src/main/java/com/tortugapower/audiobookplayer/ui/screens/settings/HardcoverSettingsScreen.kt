@@ -39,9 +39,11 @@ import com.tortugapower.audiobookplayer.viewmodel.HardcoverSettingsViewModel
 import com.tortugapower.audiobookplayer.viewmodel.HardcoverSettingsViewModelFactory
 import com.tortugapower.audiobookplayer.ui.components.BookPlayerSlider
 import com.tortugapower.audiobookplayer.ui.components.BookPlayerTabScaffold
+import com.tortugapower.audiobookplayer.ui.components.LocalMiniPlayerInset
 import com.tortugapower.audiobookplayer.ui.components.SettingsToggleItem
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
+import kotlin.math.roundToInt
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -75,7 +77,8 @@ fun HardcoverSettingsScreen(
 
     var autoMatch by remember { mutableStateOf(false) }
     var autoAdd by remember { mutableStateOf(true) }
-    var threshold by remember { mutableStateOf(1f) } // 1% to 100%
+    // 1% to 99%, whole percentages (iOS): at 100% no unfinished book would ever be Currently Reading
+    var threshold by remember { mutableStateOf(1f) }
 
     // Load initial values from Datastore
     LaunchedEffect(Unit) {
@@ -121,7 +124,9 @@ fun HardcoverSettingsScreen(
                 onSignIn = viewModel::signIn,
                 modifier = Modifier
                     .padding(innerPadding)
-                    .background(MaterialTheme.colorScheme.background),
+                    .background(MaterialTheme.colorScheme.background)
+                    // Centered above the mini player, not under it
+                    .padding(bottom = LocalMiniPlayerInset.current),
             )
         } else {
             Column(
@@ -219,8 +224,9 @@ fun HardcoverSettingsScreen(
 
                             BookPlayerSlider(
                                 value = threshold,
-                                onValueChange = { threshold = it },
-                                valueRange = 1f..100f,
+                                // Snaps to whole percentages, the ones the label shows, without steps' tick marks
+                                onValueChange = { threshold = it.roundToInt().toFloat() },
+                                valueRange = 1f..99f,
                                 // Stored once the drag ends, not on every step of it
                                 onValueChangeFinished = {
                                     val value = threshold / 100f
@@ -241,7 +247,8 @@ fun HardcoverSettingsScreen(
                 // log-out label, as on iOS.
                 LogOutButton(onClick = viewModel::unlink)
 
-                Spacer(modifier = Modifier.height(16.dp))
+                // Scrolls clear of the mini player, like the other Settings pages
+                Spacer(modifier = Modifier.height(16.dp + LocalMiniPlayerInset.current))
             }
         }
     }

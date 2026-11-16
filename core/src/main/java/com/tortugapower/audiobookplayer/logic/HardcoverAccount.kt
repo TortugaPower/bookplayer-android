@@ -69,6 +69,9 @@ object HardcoverAccount {
     /** How long a sign-in started in a regular browser waits for its return: long enough to type a password. */
     const val PENDING_SIGN_IN_TTL_MS = 10 * 60_000L
 
+    /** A regular browser's sign-in came back after [PENDING_SIGN_IN_TTL_MS]: its attempt is gone, so it failed. */
+    class HardcoverSignInExpiredException : Exception("The Hardcover sign-in came back after its attempt expired")
+
     /**
      * Seals the saved attempt: its verifier is what makes a code worth anything. Keystore calls, so tests (Robolectric
      * has no Keystore) swap in plain functions.
@@ -230,25 +233,30 @@ object HardcoverAccount {
      * Finishes a sign-in [beginBrowserSignIn] started, from the redirect the browser opened. Any app or page can open
      * that link, so one that isn't the saved attempt's (another `state`, or none saved) is ignored: false, and the saved
      * attempt keeps waiting for its own. The attempt is used once: it's deleted before the code is exchanged, so the
-     * same redirect delivered again (reopened from recents) is ignored. After [PENDING_SIGN_IN_TTL_MS] it's dropped.
-     * Throws when the redirect is the attempt's but carries an error, or the exchange fails.
+     * same redirect delivered again (reopened from recents) is ignored. After [PENDING_SIGN_IN_TTL_MS] it's dropped,
+     * and its own return then throws [HardcoverSignInExpiredException], so the screen says the sign-in failed instead
+     * of waiting on. Throws when the redirect is the attempt's but carries an error, or the exchange fails.
      */
     suspend fun completeBrowserSignIn(redirect: String, now: Long = System.currentTimeMillis()): Boolean {
         val state = HardcoverOAuth.queryParameters(redirect)["state"] ?: return false
         val stored = context.dataStore.data.first()[PENDING_SIGN_IN] ?: return false
         val pending = withContext(Dispatchers.Default) { decodePending(stored) }
         var taken = false
+        var expired = false
         context.dataStore.edit { prefs ->
             // Another attempt replaced it, or another delivery took it, since it was read
             if (prefs[PENDING_SIGN_IN] != stored) return@edit
+            val tooOld = pending == null || now - pending.createdAt !in 0..PENDING_SIGN_IN_TTL_MS
             when {
-                pending == null || now - pending.createdAt !in 0..PENDING_SIGN_IN_TTL_MS -> prefs.remove(PENDING_SIGN_IN)
-                pending.state == state -> {
+                pending == null -> prefs.remove(PENDING_SIGN_IN)
+                pending.state != state -> if (tooOld) prefs.remove(PENDING_SIGN_IN)
+                else -> {
                     prefs.remove(PENDING_SIGN_IN)
-                    taken = true
+                    if (tooOld) expired = true else taken = true
                 }
             }
         }
+        if (expired) throw HardcoverSignInExpiredException()
         if (!taken || pending == null) return false
         val attempt = HardcoverAuthorizationAttempt(url = "", state = pending.state, codeVerifier = pending.codeVerifier)
         finishSignIn(HardcoverOAuth.authorizationCode(redirect, attempt), pending.codeVerifier)

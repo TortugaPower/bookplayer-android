@@ -12,6 +12,7 @@
     <string name="common_more">更多</string>
     <string name="common_done">完成</string>
     <string name="common_ok">确定</string>
+    <string name="common_error">错误</string>
     <string name="common_cancel">取消</string>
     <string name="common_save">保存</string>
     <string name="common_delete">删除</string>
@@ -47,6 +48,8 @@
 
     <!-- Profile -->
     <string name="profile_title">个人资料</string>
+    <string name="profile_account">账户</string>
+    <string name="profile_sign_in">登录</string>
     <string name="profile_tier_label">等级: %1$s</string>
 
     <!-- Pro -->

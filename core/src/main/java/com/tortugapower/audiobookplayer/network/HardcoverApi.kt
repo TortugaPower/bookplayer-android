@@ -252,7 +252,7 @@ object HardcoverService {
             editionId?.let { put("edition_id", it) }
         }
 
-        // Throws its failures: the status task retries the ones Hardcover may get over (progress waits behind it)
+        // Throws its failures: the status task and the progress run retry the ones Hardcover may get over
         return execute(graphQLQuery, mapOf("object" to bookObject))
             ?.getAsJsonObject("insert_user_book")?.get("id")?.asInt
     }

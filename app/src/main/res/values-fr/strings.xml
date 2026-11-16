@@ -12,6 +12,7 @@
     <string name="common_more">Plus</string>
     <string name="common_done">Terminé</string>
     <string name="common_ok">OK</string>
+    <string name="common_error">Erreur</string>
     <string name="common_cancel">Annuler</string>
     <string name="common_save">Enregistrer</string>
     <string name="common_delete">Supprimer</string>
@@ -48,6 +49,8 @@
 
     <!-- Profile -->
     <string name="profile_title">Profil</string>
+    <string name="profile_account">Compte</string>
+    <string name="profile_sign_in">Se connecter</string>
     <string name="profile_tier_label">Niveau : %1$s</string>
 
     <!-- Pro -->
@@ -271,9 +274,9 @@
     <string name="hardcover_signing_in">Connexion avec Hardcover…</string>
     <string name="hardcover_sign_in_unavailable">La connexion à Hardcover nécessite un navigateur web sur cet appareil.</string>
     <string name="hardcover_sign_in_title">Se connecter à Hardcover</string>
-    <string name="hardcover_sign_in_message">Connecte-toi à ton compte Hardcover pour associer tes livres, les ajouter à ta bibliothèque Hardcover et mettre à jour ta progression de lecture pendant l\'écoute.</string>
+    <string name="hardcover_sign_in_message">Connectez-vous à votre compte Hardcover pour associer vos livres, les ajouter à votre bibliothèque Hardcover et mettre à jour votre progression de lecture pendant l\'écoute.</string>
     <string name="hardcover_not_signed_in">Non connecté à Hardcover</string>
-    <string name="hardcover_sign_in_hint">Pour rechercher et associer des livres, connecte-toi à Hardcover dans Réglages &gt; Réglages Hardcover.</string>
+    <string name="hardcover_sign_in_hint">Pour rechercher et associer des livres, connectez-vous à Hardcover dans Paramètres &gt; Paramètres Hardcover.</string>
     <string name="hardcover_connected">Connecté à Hardcover</string>
     <string name="hardcover_sign_in_failed_message">Hardcover n\'a pas terminé la connexion. Réessayez.</string>
 

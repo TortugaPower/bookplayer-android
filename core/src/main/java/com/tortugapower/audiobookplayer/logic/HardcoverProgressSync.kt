@@ -10,6 +10,7 @@ import com.tortugapower.audiobookplayer.network.HardcoverReadProgress
 import com.tortugapower.audiobookplayer.network.HardcoverService
 import com.tortugapower.audiobookplayer.network.ReadInProgressData
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.flow.first
 import java.io.IOException
 import java.util.concurrent.ConcurrentHashMap
 import kotlin.math.floor
@@ -18,14 +19,15 @@ import kotlin.math.floor
  * Puts a book's listening percentage on its read in progress on Hardcover (iOS `HardcoverService.updateReadProgress`),
  * measured against that read's edition, only forward and never at the end.
  *
- * It rides the Hardcover lane like the media servers' progress rides theirs: `SyncingLibraryRepository` queues one
- * `hardcover_update_progress` task per book holding the latest percentage, behind the status change that starts the
- * read, and [HardcoverProcessor] runs it through [send]. A book's progress is queued whenever its whole percentage
- * changes ([changes], iOS `HardcoverProgressChanges`): a 10-hour book moves every 6 minutes, about 20 requests an hour
- * against Hardcover's per-user 5,000 a day, shared with the user's other apps. Playback saves come at least every 10
- * seconds, with the last one on pause, so nothing is held back to send later. A failure Hardcover may get over (offline,
- * a timeout, rate limited, down) is retried by the engine (unlike iOS, which drops it); anything else is dropped.
- * Hardcover never touches playback or the library.
+ * It rides the Hardcover lane like the media servers' progress rides theirs (iOS's `hardcover` lane):
+ * `SyncingLibraryRepository` queues one `hardcover_update_progress` task per linked book holding the latest percentage,
+ * and [HardcoverProcessor] runs it through [send]. A run past the reading threshold sets the book Currently Reading
+ * first when the link doesn't say so yet, which starts the read the progress goes on. A book's progress is queued
+ * whenever its whole percentage changes ([changes], iOS `HardcoverProgressChanges`): a 10-hour book moves every 6
+ * minutes, about 20 requests an hour against Hardcover's per-user 5,000 a day, shared with the user's other apps.
+ * Playback saves come at least every 10 seconds, with the last one on pause, so nothing is held back to send later. A
+ * failure Hardcover may get over (offline, a timeout, rate limited, down) is retried by the engine, as on iOS; anything
+ * else is dropped. Hardcover never touches playback or the library.
  */
 object HardcoverProgressSync {
     private const val TAG = "HardcoverProgress"
@@ -44,9 +46,22 @@ object HardcoverProgressSync {
             .deletePendingTasksOfType(SyncTaskFactory.JOB_HARDCOVER_UPDATE_PROGRESS)
     }
 
+    private val statusSender = HardcoverStatusSender(
+        HardcoverService::saveUserBookStatus, HardcoverService::libraryEntry, HardcoverAccount::fetchConnectedUserId,
+    )
+
     private val updater = HardcoverProgressUpdate(
         lacksReadLibrary = { HardcoverAccount.lacksScope(READ_LIBRARY_SCOPE) },
         hardcoverLink = { uuid -> AppDatabase.getDatabase(CoreContext.appContext).libraryDao().getExternalResource(uuid, "hardcover") },
+        readingThreshold = { HardcoverSettingsManager.getReadingThreshold(CoreContext.appContext).first() },
+        startReading = { bookId -> statusSender.save(bookId, HardcoverProgressUpdate.STATUS_CURRENTLY_READING) },
+        markReading = { uuid ->
+            val dao = AppDatabase.getDatabase(CoreContext.appContext).libraryDao()
+            // Read again: the book may have been finished (`read`) or unlinked while the status was on its way
+            dao.getExternalResource(uuid, "hardcover")
+                ?.takeIf { it.syncStatus != HardcoverProgressUpdate.LINK_READ }
+                ?.let { dao.insertExternalResource(it.copy(syncStatus = HardcoverProgressUpdate.LINK_READING)) }
+        },
         // A refused key throws its 401 here (dropped below), being offline its transport error (retried)
         userId = { HardcoverAccount.connectedUserIdOrThrow() },
         readInProgress = HardcoverService::readInProgress,
@@ -124,7 +139,7 @@ internal sealed class HardcoverProgressResult {
     data object Sent : HardcoverProgressResult()
     data class Refused(val error: String) : HardcoverProgressResult()
     data object MissingScope : HardcoverProgressResult()
-    /** Not linked to a Hardcover book, or not Currently Reading in the library. */
+    /** Not linked to a Hardcover book, finished, or not past the reading threshold yet. */
     data object NotReading : HardcoverProgressResult()
     data object NoUserId : HardcoverProgressResult()
     data object NoReadInProgress : HardcoverProgressResult()
@@ -135,21 +150,39 @@ internal sealed class HardcoverProgressResult {
 internal class HardcoverProgressUpdate(
     private val lacksReadLibrary: suspend () -> Boolean,
     private val hardcoverLink: suspend (itemUuid: String) -> ExternalResourceEntity?,
+    /** Settings' reading threshold, 0–1: past it, a book not Currently Reading yet is set so first. */
+    private val readingThreshold: suspend () -> Float,
+    /** Sets the book Currently Reading on Hardcover, which starts its read: the entry's id, or null when none came back. */
+    private val startReading: suspend (bookId: Int) -> Int?,
+    /** Records the link as Currently Reading, once Hardcover took it. */
+    private val markReading: suspend (itemUuid: String) -> Unit,
     private val userId: suspend () -> String?,
     private val readInProgress: suspend (userId: Int, bookId: Int) -> ReadInProgressData?,
     /** Null when Hardcover took it, else its error. */
     private val updateReadProgress: suspend (readId: Int, progress: HardcoverReadProgress) -> String?,
 ) {
     suspend fun update(itemUuid: String, percent: Double): HardcoverProgressResult {
+        val resource = hardcoverLink(itemUuid)
+        val bookId = resource?.providerId?.toIntOrNull()
+        // A finished book's status is Read instead, through its own status task
+        if (resource == null || bookId == null || resource.syncStatus == LINK_READ) return HardcoverProgressResult.NotReading
+        if (resource.syncStatus != LINK_READING) {
+            if (percent / 100 < readingThreshold()) return HardcoverProgressResult.NotReading
+            // Currently Reading first, in the same run (iOS `syncProgress`): it starts the read the progress goes on, and
+            // a failure worth retrying throws before any progress is sent. The link says `reading` only once Hardcover
+            // took it, so a status change that failed is sent again by the book's next run.
+            if (startReading(bookId) == null) {
+                Log.e(TAG, "Hardcover returned no entry setting book $bookId Currently Reading")
+                return HardcoverProgressResult.NoReadInProgress
+            }
+            markReading(itemUuid)
+        }
         // Finding the read needs `read:library`, which a sign-in from before progress sync would lack: Hardcover answers
         // 403 until the user logs out and signs in again (iOS: no prompt until a scope is added).
         if (lacksReadLibrary()) {
             Log.i(TAG, "Hardcover progress skipped: the sign-in lacks $READ_LIBRARY_SCOPE")
             return HardcoverProgressResult.MissingScope
         }
-        val resource = hardcoverLink(itemUuid)
-        val bookId = resource?.providerId?.toIntOrNull()
-        if (resource?.syncStatus != "reading" || bookId == null) return HardcoverProgressResult.NotReading
         val userId = userId()?.toIntOrNull() ?: run {
             Log.i(TAG, "Hardcover progress skipped for book $bookId: Hardcover returned no account")
             return HardcoverProgressResult.NoUserId
@@ -185,9 +218,13 @@ internal class HardcoverProgressUpdate(
         return HardcoverProgressResult.Refused(error)
     }
 
-    private companion object {
-        const val TAG = "HardcoverProgress"
-        const val READ_LIBRARY_SCOPE = "read:library"
+    companion object {
+        private const val TAG = "HardcoverProgress"
+        private const val READ_LIBRARY_SCOPE = "read:library"
         const val STATUS_CURRENTLY_READING = 2
+
+        /** The link's `syncStatus` once Hardcover took Currently Reading, and once the book is finished */
+        const val LINK_READING = "reading"
+        const val LINK_READ = "read"
     }
 }

@@ -12,6 +12,7 @@
     <string name="common_more">Más</string>
     <string name="common_done">Hecho</string>
     <string name="common_ok">Aceptar</string>
+    <string name="common_error">Error</string>
     <string name="common_cancel">Cancelar</string>
     <string name="common_save">Guardar</string>
     <string name="common_delete">Eliminar</string>
@@ -48,6 +49,8 @@
 
     <!-- Profile -->
     <string name="profile_title">Perfil</string>
+    <string name="profile_account">Cuenta</string>
+    <string name="profile_sign_in">Iniciar sesión</string>
     <string name="profile_tier_label">Nivel: %1$s</string>
 
     <!-- Pro -->

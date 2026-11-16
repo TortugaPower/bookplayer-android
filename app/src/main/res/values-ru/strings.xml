@@ -12,6 +12,7 @@
     <string name="common_more">Еще</string>
     <string name="common_done">Готово</string>
     <string name="common_ok">ОК</string>
+    <string name="common_error">Ошибка</string>
     <string name="common_cancel">Отмена</string>
     <string name="common_save">Сохранить</string>
     <string name="common_delete">Удалить</string>
@@ -48,6 +49,8 @@
 
     <!-- Profile -->
     <string name="profile_title">Профиль</string>
+    <string name="profile_account">Аккаунт</string>
+    <string name="profile_sign_in">Войти</string>
     <string name="profile_tier_label">Уровень: %1$s</string>
 
     <!-- Pro -->

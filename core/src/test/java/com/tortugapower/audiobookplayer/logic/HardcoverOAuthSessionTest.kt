@@ -89,30 +89,34 @@ class HardcoverOAuthSessionTest {
 
         assertEquals("invalid_client", e.code)
         assertEquals("only invalid_grant ends the sign-in", "hc_rt_old", store.tokens?.refreshToken)
-        assertTrue("no more refreshes are sent", store.tokens!!.refreshRefused)
     }
 
-    @Test fun `a sign-in refused for good sends no more refreshes, and its expired token isn't used`() = runBlocking {
-        val store = MemoryStore(tokens(expiresIn = -1).copy(refreshRefused = true))
-        reply = { error("no refresh may be sent") }
+    @Test fun `a refused refresh is tried again after the wait, as on iOS`() = runBlocking {
+        val store = MemoryStore(tokens(expiresIn = -1))
+        reply = { HardcoverHttpReply(403, "<html>Forbidden</html>") }
+        val session = session(store)
 
-        assertNull(session(store).accessToken())
-        assertNull(session(store).accessToken(rejected = "hc_at_old"))
-        assertTrue(sent.isEmpty())
+        assertThrows(HardcoverOAuthException::class.java) { runBlocking { session.accessToken() } }
+        assertEquals(1, refreshes.size)
+
+        now += HardcoverOAuth.REFRESH_RETRY_DELAY_MS
+        reply = { tokenReply("hc_at_new", "hc_rt_new") }
+        assertEquals("hc_at_new", session.accessToken())
+        assertEquals(2, refreshes.size)
     }
 
-    @Test fun `a refusal with time left keeps using the token until it expires, without refreshing again`() = runBlocking {
+    @Test fun `a refusal with time left keeps using the token, and refreshes again after the wait`() = runBlocking {
         val store = MemoryStore(tokens(expiresIn = 30_000))
         reply = { HardcoverHttpReply(400, """{"error":"unauthorized_client"}""") }
         val session = session(store)
 
         assertEquals("hc_at_old", session.accessToken())
-        now += 20_000
+        now += 5_000
         assertEquals("hc_at_old", session.accessToken())
-        assertEquals(1, refreshes.size)
-        now += 20_000
-        assertNull(session.accessToken())
-        assertEquals(1, refreshes.size)
+        assertEquals("waiting: no second refresh yet", 1, refreshes.size)
+        now += HardcoverOAuth.REFRESH_RETRY_DELAY_MS
+        assertEquals("hc_at_old", session.accessToken())
+        assertEquals(2, refreshes.size)
     }
 
     @Test fun `an expired token's callers wait out a failed refresh instead of each sending one`() = runBlocking {
@@ -123,7 +127,6 @@ class HardcoverOAuthSessionTest {
         assertThrows(IOException::class.java) { runBlocking { session.accessToken() } }
         assertThrows(IOException::class.java) { runBlocking { session.accessToken() } }
         assertEquals(1, refreshes.size)
-        assertTrue("a temporary failure isn't a refusal", !store.tokens!!.refreshRefused)
 
         now += HardcoverOAuth.REFRESH_RETRY_DELAY_MS
         reply = { tokenReply("hc_at_new", "hc_rt_new") }

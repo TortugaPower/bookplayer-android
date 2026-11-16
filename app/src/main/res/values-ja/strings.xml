@@ -12,6 +12,7 @@
     <string name="common_more">もっと見る</string>
     <string name="common_done">完了</string>
     <string name="common_ok">OK</string>
+    <string name="common_error">エラー</string>
     <string name="common_cancel">キャンセル</string>
     <string name="common_save">保存</string>
     <string name="common_delete">削除</string>
@@ -47,6 +48,8 @@
 
     <!-- Profile -->
     <string name="profile_title">プロフィール</string>
+    <string name="profile_account">アカウント</string>
+    <string name="profile_sign_in">サインイン</string>
     <string name="profile_tier_label">ティア: %1$s</string>
 
     <!-- Pro -->

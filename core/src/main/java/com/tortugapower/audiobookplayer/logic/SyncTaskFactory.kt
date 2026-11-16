@@ -390,9 +390,9 @@ object SyncTaskFactory {
     }
 
     /**
-     * A Currently Reading book's listening percentage (0–100) for its read on Hardcover (HardcoverProgressSync). One
-     * task per book: a newer percentage replaces a waiting one's. In the Hardcover lane, so it runs after the status
-     * change that starts the read.
+     * A linked book's listening percentage (0–100) for its read on Hardcover (HardcoverProgressSync), whose run sets
+     * the book Currently Reading first once it's past the reading threshold. One task per book: a newer percentage
+     * replaces a waiting one's. In the Hardcover lane.
      */
     suspend fun createHardcoverProgressTask(repository: SyncTaskRepository, itemUuid: String, percent: Double) {
         val payload = mapOf("itemUuid" to itemUuid, "percent" to percent)

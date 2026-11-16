@@ -12,6 +12,7 @@
     <string name="common_more">المزيد</string>
     <string name="common_done">تم</string>
     <string name="common_ok">موافق</string>
+    <string name="common_error">خطأ</string>
     <string name="common_cancel">إلغاء</string>
     <string name="common_save">حفظ</string>
     <string name="common_delete">حذف</string>
@@ -47,6 +48,8 @@
 
     <!-- Profile -->
     <string name="profile_title">الملف الشخصي</string>
+    <string name="profile_account">حساب</string>
+    <string name="profile_sign_in">تسجيل الدخول</string>
     <string name="profile_tier_label">المستوى: %1$s</string>
 
     <!-- Pro -->

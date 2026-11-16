@@ -49,7 +49,10 @@ object HardcoverOAuth {
 
     /** Refreshed when less than this is left, so clock drift or a slow request don't send an expired token. */
     const val REFRESH_LEEWAY_MS = 60_000L
-    /** After a refresh fails without a verdict (offline, rate limited, down), the unexpired token is used this long. */
+    /**
+     * After a refresh fails (offline, rate limited, down, or refused with anything but `invalid_grant`), no refresh is
+     * sent for this long: the unexpired token is used meanwhile (iOS `refreshRetryDelay`).
+     */
     const val REFRESH_RETRY_DELAY_MS = 10_000L
 
     /** Builds the authorize URL with a fresh PKCE verifier and `state`. [randomBytes] is a test seam. */
@@ -145,12 +148,6 @@ data class HardcoverTokenSet(
     @SerializedName("scope") val scope: String,
     /** Epoch millis. */
     @SerializedName("expiresAt") val expiresAt: Long?,
-    /**
-     * The token endpoint refused to refresh it for good, with something other than `invalid_grant` (which ends the
-     * sign-in): no more refreshes are sent, and the access token serves until it expires. The sign-in is kept: a client
-     * id problem would otherwise sign everyone out. Logging out and signing in again replaces it.
-     */
-    @SerializedName("refreshRefused") val refreshRefused: Boolean = false,
 ) {
     /**
      * What the app asks for that this sign-in wasn't granted: a sign-in from before a scope was added keeps its

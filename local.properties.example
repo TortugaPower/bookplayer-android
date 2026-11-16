@@ -27,7 +27,8 @@
 # --- Hardcover -----------------------------------------------------------------
 # Public client id of a Hardcover OAuth app (hardcover.app → Account → Developer apps)
 # whose redirect URI is exactly bookplayer://hardcover/callback. Not a secret (public
-# client, PKCE). Leave empty to hide "Sign In with Hardcover"; API keys still work.
+# client, PKCE). Empty hides Hardcover's Sign In button, and Hardcover can't be
+# connected: API keys can no longer be entered.
 
 # HARDCOVER_CLIENT_ID=
 
